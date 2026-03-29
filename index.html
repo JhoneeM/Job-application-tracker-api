@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job Application Tracker</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <h1>Job Application Tracker</h1>
+
+  <!-- Add Application Form -->
+  <div class="add-form">
+    <input id="companyName" type="text" placeholder="Company name *" />
+    <input id="jobTitle" type="text" placeholder="Job title *" />
+    <input id="location" type="text" placeholder="Location" />
+    <select id="status">
+      <option value="applied">Applied</option>
+      <option value="interview">Interview</option>
+      <option value="offer">Offer</option>
+      <option value="rejected">Rejected</option>
+    </select>
+    <input id="appliedDate" type="date" title="Date applied" />
+    <textarea id="notes" placeholder="Notes (optional)"></textarea>
+    <button onclick="addApplication()">+ Add Application</button>
+  </div>
+
+  <!-- Filter -->
+  <div class="filter-bar">
+    <button class="active" onclick="setFilter(null, this)">All</button>
+    <button onclick="setFilter('applied', this)">Applied</button>
+    <button onclick="setFilter('interview', this)">Interview</button>
+    <button onclick="setFilter('offer', this)">Offer</button>
+    <button onclick="setFilter('rejected', this)">Rejected</button>
+  </div>
+
+  <!-- Application List -->
+  <div class="applications" id="applications"></div>
+
+  <script>
+    const API = '/api';
+    let currentFilter = null;
+
+    async function load() {
+      const url = currentFilter ? `${API}/applications?status=${currentFilter}` : `${API}/applications`;
+      const res = await fetch(url);
+      const apps = await res.json();
+      renderApplications(apps);
+    }
+
+    function setFilter(status, btn) {
+      currentFilter = status;
+      document.querySelectorAll('.filter-bar button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      load();
+    }
+
+    function renderApplications(apps) {
+      const container = document.getElementById('applications');
+      if (apps.length === 0) {
+        container.innerHTML = '<p class="empty">No applications found.</p>';
+        return;
+      }
+      container.innerHTML = apps.map(app => `
+        <div class="card" id="card-${app.id}">
+          <div class="card-header">
+            <div>
+              <div class="company">${esc(app.companyName)}</div>
+              <div class="title">${esc(app.jobTitle)}</div>
+            </div>
+            <div class="card-actions">
+              <span class="badge ${app.status}">${app.status}</span>
+              <select class="status-select" onchange="updateStatus(${app.id}, this.value)">
+                <option value="applied"   ${app.status==='applied'   ? 'selected':''}>Applied</option>
+                <option value="interview" ${app.status==='interview' ? 'selected':''}>Interview</option>
+                <option value="offer"     ${app.status==='offer'     ? 'selected':''}>Offer</option>
+                <option value="rejected"  ${app.status==='rejected'  ? 'selected':''}>Rejected</option>
+              </select>
+              <button class="btn" onclick="toggleInterviews(${app.id})">Interviews</button>
+              <button class="btn danger" onclick="deleteApplication(${app.id})">Delete</button>
+            </div>
+          </div>
+          <div class="card-meta">
+            ${app.location ? `<span>📍 ${esc(app.location)}</span>` : ''}
+            ${app.appliedDate ? `<span>📅 Applied ${formatDate(app.appliedDate)}</span>` : ''}
+            <span>⏱ ${app.daysSinceApplied} day${app.daysSinceApplied !== 1 ? 's' : ''} ago</span>
+            ${app.notes ? `<span>📝 ${esc(app.notes)}</span>` : ''}
+          </div>
+          <div class="interviews-section" id="interviews-${app.id}" style="display:none;"></div>
+        </div>
+      `).join('');
+    }
+
+    async function addApplication() {
+      const companyName = document.getElementById('companyName').value.trim();
+      const jobTitle = document.getElementById('jobTitle').value.trim();
+      if (!companyName || !jobTitle) { alert('Company name and job title are required.'); return; }
+
+      const appliedDate = document.getElementById('appliedDate').value;
+      const body = {
+        companyName,
+        jobTitle,
+        location: document.getElementById('location').value.trim() || null,
+        status: document.getElementById('status').value,
+        appliedDate: appliedDate ? new Date(appliedDate).toISOString() : null,
+        notes: document.getElementById('notes').value.trim() || null,
+      };
+
+      const res = await fetch(`${API}/applications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        ['companyName','jobTitle','location','notes'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('appliedDate').value = '';
+        document.getElementById('status').value = 'applied';
+        load();
+      } else {
+        const err = await res.json();
+        alert('Error: ' + err.error);
+      }
+    }
+
+    async function updateStatus(id, status) {
+      await fetch(`${API}/applications/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      load();
+    }
+
+    async function deleteApplication(id) {
+      if (!confirm('Delete this application?')) return;
+      await fetch(`${API}/applications/${id}`, { method: 'DELETE' });
+      load();
+    }
+
+    async function toggleInterviews(id) {
+      const section = document.getElementById(`interviews-${id}`);
+      if (section.style.display === 'none') {
+        section.style.display = 'block';
+        await loadInterviews(id);
+      } else {
+        section.style.display = 'none';
+      }
+    }
+
+    async function loadInterviews(appId) {
+      const res = await fetch(`${API}/applications/${appId}/interviews`);
+      const interviews = await res.json();
+      const section = document.getElementById(`interviews-${appId}`);
+      section.innerHTML = `
+        <h2>Interviews</h2>
+        <div class="interviews-list">
+          ${interviews.length === 0
+            ? '<span class="empty">No interviews yet.</span>'
+            : interviews.map(i => `
+              <div class="interview-item">
+                <span>${formatDate(i.interviewDate)} — <strong>${i.interviewType}</strong>${i.notes ? ` — ${esc(i.notes)}` : ''}</span>
+                <button class="btn danger" onclick="deleteInterview(${appId}, ${i.id})">Remove</button>
+              </div>
+            `).join('')}
+        </div>
+        <div class="add-interview-form">
+          <input type="datetime-local" id="idate-${appId}" />
+          <select id="itype-${appId}">
+            <option value="phone">Phone</option>
+            <option value="video">Video</option>
+            <option value="onsite">Onsite</option>
+            <option value="other">Other</option>
+          </select>
+          <input type="text" id="inotes-${appId}" placeholder="Notes (optional)" />
+          <button class="btn" onclick="addInterview(${appId})">+ Add</button>
+        </div>
+      `;
+    }
+
+    async function addInterview(appId) {
+      const dateVal = document.getElementById(`idate-${appId}`).value;
+      if (!dateVal) { alert('Please pick a date and time.'); return; }
+      const body = {
+        interviewDate: new Date(dateVal).toISOString(),
+        interviewType: document.getElementById(`itype-${appId}`).value,
+        notes: document.getElementById(`inotes-${appId}`).value.trim() || null,
+      };
+      const res = await fetch(`${API}/applications/${appId}/interviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) await loadInterviews(appId);
+    }
+
+    async function deleteInterview(appId, id) {
+      await fetch(`${API}/applications/${appId}/interviews/${id}`, { method: 'DELETE' });
+      await loadInterviews(appId);
+    }
+
+    function formatDate(iso) {
+      return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function esc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    load();
+  </script>
+</body>
+</html>
