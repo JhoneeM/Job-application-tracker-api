@@ -3,7 +3,7 @@
 A full-stack REST API for managing and analyzing job applications, built with Node.js, Express, and PostgreSQL (Supabase), and deployed on Render.
 
 ## 🚀 Live API
-https://your-render-url.onrender.com
+https://job-application-tracker-api-ncyq.onrender.com
 
 ## 📌 Features
 - Create, read, update, and delete job applications (CRUD)
